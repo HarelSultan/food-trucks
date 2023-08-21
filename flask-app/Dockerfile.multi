@@ -1,0 +1,39 @@
+# Build Stage
+FROM alpine:3.10 as build-stage
+WORKDIR /app-build
+
+# Install necessary tools and packages for building
+RUN apk add --no-cache     python2     py2-pip     nodejs     npm    
+
+# Install Python packages and save them to a directory
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt -t /python-packages
+
+# Install and build npm packages
+COPY package*.json ./
+RUN npm install
+RUN npm build
+
+# Copy rest of the application for building
+COPY . .
+
+# Production Stage
+FROM alpine:3.10
+WORKDIR /app
+
+# Install only necessary tools for running the application
+RUN apk add --no-cache python2
+
+# Copy installed Python packages from the build stage
+COPY --from=build-stage /python-packages /usr/lib/python2.7/site-packages/
+
+# Copy only necessary files and built assets from the build stage
+COPY --from=build-stage /app-build/static /app/static
+COPY --from=build-stage /app-build/templates /app/templates
+COPY --from=build-stage /app-build/app.py /app/app.py
+
+# Expose port 5000 for the Flask app
+EXPOSE 5000
+
+# Set the Entrypoint to execute the application
+ENTRYPOINT [ "python", "app.py" ]
