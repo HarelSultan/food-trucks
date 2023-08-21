@@ -1,28 +1,44 @@
-# Start from an empty Alpine image
-FROM alpine:3.10
-# Set the working directory in the container to /app
-WORKDIR /app
-# Install necessary tools and packages
-RUN apk add --no-cache \
-    python2 \
-    py2-pip \
-    nodejs \
-    npm \
-    build-base
-# Copy the requirements.txt first to leverage Docker caching
-COPY requirements.txt /app/requirements.txt
-# Install any Python packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-# If your project has frontend components requiring npm
-# Copy the package.json and package-lock.json for npm packages
+# Build Stage
+FROM alpine:3.10 as build-stage
+WORKDIR /app-build
+
+# Install necessary tools and packages for building
+RUN apk add --no-cache     python2     py2-pip     nodejs     npm    
+
+# Install Python packages and save them to a directory
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt -t /python-packages
+
+# Install and build npm packages
+COPY webpack.config.js ./
 COPY package*.json ./
-# Install npm packages
 RUN npm install
-RUN npm build
-#RUN npm run start
-# Copy the rest of the application into the container
-COPY . /app
+COPY static/src/app.js ./static/src/app.js
+RUN npm run build
+
+# Copy rest of the application for building
+COPY . .
+
+# Export Stage (Only for static and templates directories)
+FROM scratch AS export-stage
+COPY --from=build-stage /app-build/static /static
+COPY --from=build-stage /app-build/templates /templates
+
+# Production Stage (Without static and templates directories)
+FROM alpine:3.10
+WORKDIR /app
+
+# Install only necessary tools for running the application
+RUN apk add --no-cache python2
+
+# Copy installed Python packages from the build stage
+COPY --from=build-stage /python-packages /usr/lib/python2.7/site-packages/
+
+# Copy only the app.py file from the build stage
+COPY --from=build-stage /app-build/app.py /app/app.py
+
 # Expose port 5000 for the Flask app
 EXPOSE 5000
+
 # Set the Entrypoint to execute the application
 ENTRYPOINT [ "python", "app.py" ]
